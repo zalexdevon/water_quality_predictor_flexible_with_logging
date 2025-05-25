@@ -2,7 +2,7 @@ from Mylib import myfuncs, myclasses
 import os
 
 
-def load_data_for_me_trainval(data_transformation_path, model_path):
+def load_data_for_me_trainval(data_transformation_path, model_path, class_names_path):
     train_features = myfuncs.load_python_object(
         os.path.join(data_transformation_path), "train_features.pkl"
     )
@@ -19,7 +19,7 @@ def load_data_for_me_trainval(data_transformation_path, model_path):
     model = myfuncs.load_python_object(model_path)
 
     class_names = myfuncs.load_python_object(
-        os.path.join(data_transformation_path, "class_names.pkl")
+        class_names_path
     )
 
     return train_features, train_target, val_features, val_target, model, class_names
@@ -32,8 +32,6 @@ def evaluate_model_on_train_val(
     val_target,
     model,
     class_names,
-    model_name,
-    model_index,
     root_dir,
 ):
     final_model_results_text = (
