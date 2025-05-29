@@ -2,6 +2,13 @@ import os
 from Mylib import myfuncs, fit_incremental_sl_model
 import time
 from src.utils import funcs
+from sklearn.base import clone
+import gc
+from sklearn.model_selection import ParameterSampler
+import numpy as np
+
+SCORINGS_PREFER_MININUM = ["log_loss", "mse", "mae"]
+SCORINGS_PREFER_MAXIMUM = ["accuracy"]
 
 
 def load_data_for_model_training(data_transformation_path):
@@ -19,15 +26,6 @@ def load_data_for_model_training(data_transformation_path):
     )
 
     return train_feature_data, train_target_data, val_feature_data, val_target_data
-
-
-def save_models_before_training(model_training_path, model_indices, models):
-    for model_index, model in zip(model_indices, models):
-        myfuncs.create_directories([f"{model_training_path}/{model_index}"])
-
-        myfuncs.save_python_object(
-            f"{model_training_path}/{model_index}/model.pkl", model
-        )
 
 
 def load_data_for_batch_model_training(data_transformation_path, batches_folder_path):
@@ -63,66 +61,99 @@ def save_model_after_training(
         myfuncs.save_python_object(f"{model_folder_path}/fitted_model.pkl", model)
 
 
-def train_and_save_models(
+def get_list_param(param_dict, num_models):
+    param_list = list(ParameterSampler(param_dict, n_iter=num_models, random_state=42))
+    return param_list
+
+
+def create_model(base_model, param):
+    model = clone(base_model)
+    model.set_params(**param)
+    return model
+
+
+def get_sign_for_val_scoring_find_best_model(scoring):
+    if scoring in SCORINGS_PREFER_MININUM:
+        return -1
+
+    if scoring in SCORINGS_PREFER_MAXIMUM:
+        return 1
+
+    raise ValueError(f"Chưa định nghĩa cho {scoring}")
+
+
+def train_models(
     model_training_path,
-    model_name,
-    model_indices,
-    train_feature_data,
-    train_target_data,
-    val_feature_data,
-    val_target_data,
+    num_models,
+    base_model,
+    param_dict,
+    train_feature,
+    train_target,
+    val_feature,
+    val_target,
     scoring,
     model_saving_val_scoring_limit,
 ):
     log_message = ""
-    for model_index in model_indices:
-        model_folder_path = f"{model_training_path}/{model_index}"
 
-        # Load model để train
-        model = myfuncs.load_python_object(f"{model_folder_path}/model.pkl")
-        os.remove(
-            f"{model_folder_path}/model.pkl"
-        )  # Load xong thì file này ko cần thiết nữa
+    list_param = get_list_param(param_dict, num_models)
+    best_val_scoring = -np.inf
+    sign_for_val_scoring_find_best_model = get_sign_for_val_scoring_find_best_model(
+        scoring
+    )
+    model_saving_val_scoring_limit = (
+        model_saving_val_scoring_limit * sign_for_val_scoring_find_best_model
+    )
 
-        full_model_index = f"{model_name}_{model_index}"
+    for i, param in enumerate(list_param):
+        # Tạo model
+        model = create_model(base_model, param)
 
-        print(f"Train model {full_model_index}")
+        # Train model
+        print(f"Train model {i} / {num_models}")
         start_time = time.time()
-        model.fit(train_feature_data, train_target_data)
+        model.fit(train_feature, train_target)
         training_time = time.time() - start_time
 
         train_scoring = myfuncs.evaluate_model_on_one_scoring_17(
             model,
-            train_feature_data,
-            train_target_data,
+            train_feature,
+            train_target,
             scoring,
         )
         val_scoring = myfuncs.evaluate_model_on_one_scoring_17(
             model,
-            val_feature_data,
-            val_target_data,
+            val_feature,
+            val_target,
             scoring,
         )
 
         # In kết quả
-        training_result_text = f"Model {full_model_index}\n -> Train {scoring}: {train_scoring}, Val {scoring}: {val_scoring}, Time: {training_time} (s)\n"
+        training_result_text = f"{param}\n -> Val {scoring}: {val_scoring}, Train {scoring}: {train_scoring}, Time: {training_time} (s)\n"
         print(training_result_text)
 
         # Logging
         log_message += training_result_text
 
-        # Lưu model sau khi trained và kết quả
-        save_model_after_training(
-            model_saving_val_scoring_limit,
-            val_scoring,
-            scoring,
-            model_folder_path,
-            model,
-        )
-        myfuncs.save_python_object(
-            f"{model_folder_path}/result.pkl",
-            (full_model_index, train_scoring, val_scoring, training_time),
-        )
+        # Cập nhật best model và lưu lại
+        val_scoring_find_best_model = val_scoring * sign_for_val_scoring_find_best_model
+
+        if best_val_scoring < val_scoring_find_best_model:
+            best_val_scoring = val_scoring_find_best_model
+
+            # Lưu model
+            if best_val_scoring > model_saving_val_scoring_limit:
+                myfuncs.save_python_object(f"{model_training_path}/model.pkl", model)
+
+            # Lưu kết quả
+            myfuncs.save_python_object(
+                f"{model_training_path}/result.pkl",
+                (param, val_scoring, train_scoring, training_time),
+            )
+
+        # Giải phóng bộ nhớ
+        del model
+        gc.collect()
 
     return log_message
 
@@ -178,59 +209,71 @@ def train_on_batches(model, batches_folder_path, num_batch, scoring):
     return list_train_scoring[-1]  # Lấy kết quả trên batch cuối cùng
 
 
-def train_and_save_models_on_batch_training_data(
+def train_models_batch(
     batches_folder_path,
-    model_name,
     model_training_path,
-    val_feature_data,
-    val_target_data,
-    model_indices,
-    num_batch,
+    num_models,
+    base_model,
+    param_dict,
+    val_feature,
+    val_target,
     scoring,
+    num_batch,
     model_saving_val_scoring_limit,
 ):
 
     log_message = ""
-    for model_index in model_indices:
-        model_folder_path = f"{model_training_path}/{model_index}"
-        # Load model để train
-        model = myfuncs.load_python_object(f"{model_folder_path}/model.pkl")
-        os.remove(
-            f"{model_folder_path}/model.pkl"
-        )  # Load xong thì file này ko cần thiết nữa
+    list_param = get_list_param(param_dict, num_models)
+    best_val_scoring = -np.inf
+    sign_for_val_scoring_find_best_model = get_sign_for_val_scoring_find_best_model(
+        scoring
+    )
+    model_saving_val_scoring_limit = (
+        model_saving_val_scoring_limit * sign_for_val_scoring_find_best_model
+    )
 
-        full_model_index = f"{model_name}_{model_index}"
+    for i, param in enumerate(list_param):
+        # Tạo model
+        model = create_model(base_model, param)
 
-        print(f"Train model {full_model_index}")
+        # Train model
+        print(f"Train model {i} / {num_models}")
         start_time = time.time()
         train_scoring = train_on_batches(model, batches_folder_path, num_batch, scoring)
         training_time = time.time() - start_time
 
         val_scoring = myfuncs.evaluate_model_on_one_scoring_17(
             model,
-            val_feature_data,
-            val_target_data,
+            val_feature,
+            val_target,
             scoring,
         )
 
         # In kết quả
-        training_result_text = f"Model {full_model_index}\n -> Train {scoring}: {train_scoring}, Val {scoring}: {val_scoring}, Time: {training_time} (s)\n"
+        training_result_text = f"{param}\n -> Val {scoring}: {val_scoring}, Train {scoring}: {train_scoring}, Time: {training_time} (s)\n"
         print(training_result_text)
 
         # Logging
         log_message += training_result_text
 
-        # Lưu model sau khi trained và kết quả
-        save_model_after_training(
-            model_saving_val_scoring_limit,
-            val_scoring,
-            scoring,
-            model_folder_path,
-            model,
-        )
-        myfuncs.save_python_object(
-            f"{model_folder_path}/result.pkl",
-            (full_model_index, train_scoring, val_scoring, training_time),
-        )
+        # Cập nhật best model và lưu lại
+        val_scoring_find_best_model = val_scoring * sign_for_val_scoring_find_best_model
+
+        if best_val_scoring < val_scoring_find_best_model:
+            best_val_scoring = val_scoring_find_best_model
+
+            # Lưu model
+            if best_val_scoring > model_saving_val_scoring_limit:
+                myfuncs.save_python_object(f"{model_training_path}/model.pkl", model)
+
+            # Lưu kết quả
+            myfuncs.save_python_object(
+                f"{model_training_path}/result.pkl",
+                (param, val_scoring, train_scoring, training_time),
+            )
+
+        # Giải phóng bộ nhớ
+        del model
+        gc.collect()
 
     return log_message

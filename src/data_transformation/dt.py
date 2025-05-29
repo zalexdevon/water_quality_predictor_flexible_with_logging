@@ -2,12 +2,10 @@ from Mylib import myfuncs, stringToObjectConverter, myclasses
 import os
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import (
-    OrdinalEncoder,
-)
+from sklearn.preprocessing import OrdinalEncoder, MinMaxScaler
 
 
-def load_data_for_data_transformation(data_correction_path):
+def load_data_for_data_transformation(data_correction_path, class_names_path):
     # Load df train đã corrected
     df_train = myfuncs.load_python_object(
         os.path.join(data_correction_path, "data.pkl")
@@ -35,6 +33,9 @@ def load_data_for_data_transformation(data_correction_path):
         df_train
     )
 
+    # Get class names
+    class_names = myfuncs.load_python_object(class_names_path)
+
     return (
         df_train,
         feature_ordinal_dict,
@@ -42,11 +43,16 @@ def load_data_for_data_transformation(data_correction_path):
         df_val,
         feature_cols,
         target_col,
+        class_names,
     )
 
 
 def create_data_transformation_transformer(
-    list_after_feature_transformer, feature_ordinal_dict, feature_cols, target_col
+    list_after_feature_transformer,
+    feature_ordinal_dict,
+    feature_cols,
+    target_col,
+    class_names,
 ):
     after_feature_pipeline = myfuncs.convert_list_estimator_into_pipeline_59(
         list_after_feature_transformer
@@ -59,6 +65,7 @@ def create_data_transformation_transformer(
                 myclasses.DuringFeatureTransformer(feature_ordinal_dict),
             ),
             ("after", after_feature_pipeline),
+            ("final_scale", MinMaxScaler()),
         ]
     )
     feature_transformer = myclasses.NamedColumnTransformer(
@@ -66,7 +73,9 @@ def create_data_transformation_transformer(
     )
 
     target_transformer = myclasses.NamedColumnTransformer(
-        ColumnTransformer(transformers=[("1", OrdinalEncoder(), [target_col])])
+        ColumnTransformer(
+            transformers=[("1", OrdinalEncoder(categories=[class_names]), [target_col])]
+        )
     )
 
     return feature_transformer, target_transformer
@@ -80,11 +89,15 @@ def do_transform_data_in_data_transformation(
     correction_transformer,
 ):
     df_train_feature = feature_transformer.fit_transform(df_train).astype("float32")
-    df_train_target = target_transformer.fit_transform(df_train).astype("int8")
+    df_train_target = (
+        target_transformer.fit_transform(df_train).values.reshape(-1).astype("int8")
+    )
 
     df_val_corrected = correction_transformer.transform(df_val)
     df_val_feature = feature_transformer.transform(df_val_corrected).astype("float32")
-    df_val_target = target_transformer.transform(df_val_corrected).astype("int8")
+    df_val_target = (
+        target_transformer.transform(df_val_corrected).values.reshape(-1).astype("int8")
+    )
 
     return df_train_feature, df_train_target, df_val_feature, df_val_target
 
@@ -155,35 +168,3 @@ def save_data_for_data_transformation(
     myfuncs.save_python_object(
         f"{data_transformation_path}/val_target.pkl", df_val_target
     )
-
-
-def create_weight_data_transformation_transformer(
-    weights,
-    list_after_feature_transformer,
-    feature_ordinal_dict,
-    feature_cols,
-    target_col,
-):
-    after_feature_pipeline = myfuncs.convert_list_estimator_into_pipeline_59(
-        list_after_feature_transformer
-    )
-
-    feature_pipeline = Pipeline(
-        steps=[
-            (
-                "during",
-                myclasses.DuringFeatureTransformer(feature_ordinal_dict),
-            ),
-            ("after", after_feature_pipeline),
-            ("multiplyWeights", myclasses.MultiplyWeightsTransformer(weights)),
-        ]
-    )
-    feature_transformer = myclasses.NamedColumnTransformer(
-        ColumnTransformer(transformers=[("1", feature_pipeline, feature_cols)])
-    )
-
-    target_transformer = myclasses.NamedColumnTransformer(
-        ColumnTransformer(transformers=[("1", OrdinalEncoder(), [target_col])])
-    )
-
-    return feature_transformer, target_transformer
