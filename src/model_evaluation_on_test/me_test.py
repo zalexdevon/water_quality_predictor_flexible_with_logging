@@ -1,41 +1,47 @@
 from Mylib import myfuncs, myclasses
-import os
 
 
 def load_data_for_model_evaluation_on_test(
     test_data_path,
-    correction_transformer_path,
-    transformation_transformer_path,
     class_names_path,
+    correction_transformer_path,
+    data_transformation_path,
     model_path,
 ):
     test_data = myfuncs.load_python_object(test_data_path)
-    correction_transformer = myfuncs.load_python_object(
-        os.path.join(correction_transformer_path)
+    class_names = myfuncs.load_python_object(class_names_path)
+    correction_transformer = myfuncs.load_python_object(correction_transformer_path)
+    feature_transformer = myfuncs.load_python_object(
+        f"{data_transformation_path}/feature_transformer.pkl"
     )
-    transformation_transformer = myfuncs.load_python_object(
-        os.path.join(transformation_transformer_path)
+    target_transformer = myfuncs.load_python_object(
+        f"{data_transformation_path}/target_transformer.pkl"
     )
     model = myfuncs.load_python_object(model_path)
-    class_names = myfuncs.load_python_object(os.path.join(class_names_path))
 
     return (
         test_data,
-        correction_transformer,
-        transformation_transformer,
-        model,
         class_names,
+        correction_transformer,
+        feature_transformer,
+        target_transformer,
+        model,
     )
 
 
-def transform_test_data(test_data, correction_transformer, transformation_transformer):
-    test_data_corrected = correction_transformer.transform(test_data)
-    test_data_transformed = transformation_transformer.transform(test_data_corrected)
-    target_col = myfuncs.get_target_col_from_df_26(test_data_transformed)
-    test_features = test_data_transformed.drop(columns=[target_col])
-    test_target = test_data_transformed[target_col]
+def transform_test_data(
+    test_data, correction_transformer, feature_transformer, target_transformer
+):
+    # Transform tập test
+    df_test_corrected = correction_transformer.transform(test_data)
+    df_test_feature = feature_transformer.transform(df_test_corrected)
+    df_test_target = target_transformer.transform(df_test_corrected).values.reshape(-1)
 
-    return test_features, test_target
+    # Thay đổi kiểu dữ liệu
+    df_test_feature = df_test_feature.astype("float32")
+    df_test_target = df_test_target.astype("int8")
+
+    return df_test_feature, df_test_target
 
 
 def evaluate_model_on_test(
@@ -43,7 +49,7 @@ def evaluate_model_on_test(
     test_target,
     model,
     class_names,
-    root_dir,
+    model_evaluation_on_test_path,
 ):
 
     final_model_results_text = "===========Kết quả đánh giá model ================\n"
@@ -57,11 +63,13 @@ def evaluate_model_on_test(
     final_model_results_text += model_results_text
 
     # Lưu confusion matrix cho tập test
-    test_confusion_matrix_path = os.path.join(root_dir, "test_confusion_matrix.png")
+    test_confusion_matrix_path = (
+        f"{model_evaluation_on_test_path}/test_confusion_matrix.png"
+    )
     test_confusion_matrix.savefig(
         test_confusion_matrix_path, dpi=None, bbox_inches="tight", format=None
     )
 
     # Lưu vào file results.txt
-    with open(os.path.join(root_dir, "result.txt"), mode="w") as file:
+    with open(f"{model_evaluation_on_test_path}/result.txt", mode="w") as file:
         file.write(final_model_results_text)
