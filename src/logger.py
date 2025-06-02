@@ -2,11 +2,10 @@ import logging
 import os
 from datetime import datetime
 
-logs_path = "artifacts/logs"
-os.makedirs(logs_path, exist_ok=True)
-
 
 def configure_logger():
+    logs_path = "artifacts/logs"
+    os.makedirs(logs_path, exist_ok=True)
     date_format = "%d-%m-%Y-%H-%M-%S"
     log_file = f"{datetime.now().strftime(date_format)}.log"
     log_file_path = os.path.join(logs_path, log_file)

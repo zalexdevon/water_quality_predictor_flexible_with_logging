@@ -47,6 +47,38 @@ def load_data_for_data_transformation(data_correction_path, class_names_path):
     )
 
 
+def load_data_for_data_transformation_cv(data_correction_path, class_names_path):
+    # Load df train đã corrected
+    df_train = myfuncs.load_python_object(
+        os.path.join(data_correction_path, "data.pkl")
+    )
+
+    # Load dict để biến đổi các biến ordinal
+    feature_ordinal_dict = myfuncs.load_python_object(
+        os.path.join(
+            data_correction_path,
+            "feature_ordinal_dict.pkl",
+        )
+    )
+
+    # Các cột feature và cột target
+    feature_cols, target_col = myfuncs.get_feature_cols_and_target_col_from_df_27(
+        df_train
+    )
+
+    # Get class names
+    class_names = myfuncs.load_python_object(class_names_path)
+
+    return (
+        df_train,
+        feature_ordinal_dict,
+        correction_transformer,
+        feature_cols,
+        target_col,
+        class_names,
+    )
+
+
 def create_data_transformation_transformer(
     list_after_feature_transformer,
     feature_ordinal_dict,
@@ -102,43 +134,17 @@ def do_transform_data_in_data_transformation(
     return df_train_feature, df_train_target, df_val_feature, df_val_target
 
 
-def save_training_batches(
-    df_train_feature,
-    df_train_target,
-    batch_size,
-    training_batches_folder_path,
+def do_transform_data_in_data_transformation_cv(
+    feature_transformer,
+    target_transformer,
+    df_train,
 ):
-    num_train_samples = len(df_train_feature)
-    start_indices = range(
-        0, num_train_samples, batch_size
-    )  # List các start_index của các batch
-    num_batch = len(start_indices)
-
-    # Save số lượng batch
-    myfuncs.save_python_object(
-        os.path.join(training_batches_folder_path, "num_batch.pkl"), num_batch
+    df_train_feature = feature_transformer.fit_transform(df_train).astype("float32")
+    df_train_target = (
+        target_transformer.fit_transform(df_train).values.reshape(-1).astype("int8")
     )
 
-    # Save training batch
-    for batch_index, start_index in enumerate(start_indices):
-        feature = df_train_feature.iloc[start_index : start_index + batch_size, :]
-        target = df_train_target.iloc[start_index : start_index + batch_size]
-
-        # Save feature và target
-        myfuncs.save_python_object(
-            os.path.join(
-                training_batches_folder_path,
-                f"train_features_{batch_index}.pkl",
-            ),
-            feature,
-        )
-        myfuncs.save_python_object(
-            os.path.join(
-                training_batches_folder_path,
-                f"train_target_{batch_index}.pkl",
-            ),
-            target,
-        )
+    return df_train_feature, df_train_target
 
 
 def save_data_for_data_transformation(
@@ -167,4 +173,25 @@ def save_data_for_data_transformation(
     )
     myfuncs.save_python_object(
         f"{data_transformation_path}/val_target.pkl", df_val_target
+    )
+
+
+def save_data_for_data_transformation_cv(
+    data_transformation_path,
+    feature_transformer,
+    target_transformer,
+    df_train_feature,
+    df_train_target,
+):
+    myfuncs.save_python_object(
+        f"{data_transformation_path}/feature_transformer.pkl", feature_transformer
+    )
+    myfuncs.save_python_object(
+        f"{data_transformation_path}/target_transformer.pkl", target_transformer
+    )
+    myfuncs.save_python_object(
+        f"{data_transformation_path}/train_features.pkl", df_train_feature
+    )
+    myfuncs.save_python_object(
+        f"{data_transformation_path}/train_target.pkl", df_train_target
     )
